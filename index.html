@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LAN Chat & File Transfer - WebRTC P2P</title>
+    <title>LAN Chat & File Transfer - WebRTC P2P (Supabase Signaling)</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🔗 Chat & Arquivos P2P (LAN)</h1>
-            <p class="subtitle">Comunicação direta entre navegadores via WebRTC — sem servidor externo</p>
+            <p class="subtitle">Comunicação direta via WebRTC — sinalização automática com Supabase</p>
         </header>
 
         <!-- Configuração do usuário -->
@@ -23,50 +24,24 @@
             <p class="hint">Digite um nome antes de iniciar a conexão.</p>
         </section>
 
-        <!-- Fluxo de sinalização manual -->
-        <div class="grid-signaling">
-            <!-- Passo 1: Ofertante -->
-            <section class="card signaling-card">
-                <h2>📤 Passo 1 — Ofertante</h2>
-                <ol class="steps">
-                    <li>Clique em <strong>"Criar Oferta"</strong>.</li>
-                    <li>Copie o texto gerado e envie para o outro dispositivo (ex: e-mail, WhatsApp, etc).</li>
-                </ol>
-                <button id="btnCreateOffer" class="btn btn-primary">Criar Oferta</button>
-                <div class="output-area">
-                    <textarea id="offerOutput" readonly placeholder="A oferta aparecerá aqui..."></textarea>
-                    <button id="btnCopyOffer" class="btn btn-secondary" disabled>Copiar Oferta</button>
+        <!-- Sala de conexão -->
+        <section class="card room-card">
+            <h2>� Sala de Conexão</h2>
+            <div class="room-actions">
+                <div class="room-create">
+                    <button id="btnCreateRoom" class="btn btn-primary">Criar Sala</button>
+                    <p class="hint">Gera um código curto para o outro dispositivo entrar.</p>
                 </div>
-            </section>
-
-            <!-- Passo 2: Respondente -->
-            <section class="card signaling-card">
-                <h2>📥 Passo 2 — Respondente</h2>
-                <ol class="steps">
-                    <li>Cole a <strong>oferta</strong> recebida no campo abaixo.</li>
-                    <li>Clique em <strong>"Responder à Oferta"</strong>.</li>
-                    <li>Copie a <strong>resposta</strong> gerada e envie de volta ao ofertante.</li>
-                </ol>
-                <textarea id="offerInput" placeholder="Cole aqui a oferta (JSON)..."></textarea>
-                <button id="btnAnswer" class="btn btn-primary">Responder à Oferta</button>
-                <div class="output-area">
-                    <textarea id="answerOutput" readonly placeholder="A resposta aparecerá aqui..."></textarea>
-                    <button id="btnCopyAnswer" class="btn btn-secondary" disabled>Copiar Resposta</button>
+                <div class="room-join">
+                    <input type="text" id="roomCodeInput" placeholder="Código da sala" maxlength="10" style="text-transform: uppercase;">
+                    <button id="btnJoinRoom" class="btn btn-secondary">Entrar na Sala</button>
                 </div>
-            </section>
-
-            <!-- Passo 3: Finalizar -->
-            <section class="card signaling-card">
-                <h2>🔌 Passo 3 — Finalizar (Ofertante)</h2>
-                <ol class="steps">
-                    <li>Cole a <strong>resposta</strong> recebida do respondente.</li>
-                    <li>Clique em <strong>"Conectar"</strong>.</li>
-                    <li>Aguarde o status mudar para <strong>"Conectado"</strong>.</li>
-                </ol>
-                <textarea id="answerInput" placeholder="Cole aqui a resposta (JSON)..."></textarea>
-                <button id="btnConnect" class="btn btn-primary">Conectar</button>
-            </section>
-        </div>
+            </div>
+            <div id="roomInfo" class="room-info" style="display: none;">
+                <p>Código da sala: <strong id="roomCodeDisplay"></strong></p>
+                <p class="hint">Aguardando outro dispositivo entrar... (presença detectada automaticamente)</p>
+            </div>
+        </section>
 
         <!-- Status da conexão -->
         <section class="card status-card">
@@ -79,7 +54,7 @@
                 <p><strong>Log de eventos:</strong></p>
                 <div id="logContainer" class="log-container"></div>
             </div>
-            <button id="btnReset" class="btn btn-danger">Resetar / Limpar Tudo</button>
+            <button id="btnReset" class="btn btn-danger">Resetar / Sair da Sala</button>
         </section>
 
         <!-- Chat -->
@@ -114,10 +89,11 @@
         </section>
 
         <footer>
-            <p>⚠️ <strong>Importante:</strong> Ambos os dispositivos devem acessar esta página (via IP local) e seguir o fluxo de sinalização manual. Toda comunicação é P2P após a conexão.</p>
+            <p>⚠️ <strong>Importante:</strong> Ambos os dispositivos devem acessar esta página e usar o mesmo código de sala. Toda comunicação P2P ocorre após a conexão estabelecida.</p>
         </footer>
     </div>
 
+    <script src="config.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

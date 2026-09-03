@@ -85,35 +85,52 @@ header h1 {
 }
 
 /* ============================================
-   Grid de sinalização
+   Seção Sala
 ============================================ */
-.grid-signaling {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 1rem;
+.room-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: center;
     margin-bottom: 1rem;
 }
 
-@media (max-width: 900px) {
-    .grid-signaling {
-        grid-template-columns: 1fr;
-    }
-}
-
-.signaling-card {
+.room-create,
+.room-join {
     display: flex;
     flex-direction: column;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 200px;
 }
 
-.steps {
-    margin-left: 1.25rem;
-    margin-bottom: 1rem;
-    color: var(--text-muted);
-    font-size: 0.9rem;
+.room-join {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.steps li {
-    margin-bottom: 0.25rem;
+.room-join input {
+    flex: 1;
+    text-transform: uppercase;
+    font-family: 'Consolas', 'Courier New', monospace;
+    letter-spacing: 2px;
+    font-weight: bold;
+}
+
+.room-info {
+    background: rgba(79, 124, 255, 0.1);
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 0.75rem;
+    text-align: center;
+    margin-top: 0.5rem;
+}
+
+.room-info strong {
+    font-size: 1.5rem;
+    letter-spacing: 3px;
+    color: #a855f7;
 }
 
 /* ============================================
@@ -167,10 +184,9 @@ header h1 {
 }
 
 /* ============================================
-   Inputs e áreas de texto
+   Inputs
 ============================================ */
-input[type="text"],
-textarea {
+input[type="text"] {
     width: 100%;
     padding: 0.6rem;
     border: 1px solid var(--border);
@@ -178,42 +194,13 @@ textarea {
     background: #0d0f16;
     color: var(--text);
     font-size: 0.9rem;
-    font-family: 'Consolas', 'Courier New', monospace;
-    resize: vertical;
+    font-family: 'Segoe UI', sans-serif;
     transition: border var(--transition);
 }
 
-input[type="text"]:focus,
-textarea:focus {
+input[type="text"]:focus {
     outline: none;
     border-color: var(--primary);
-}
-
-textarea {
-    min-height: 100px;
-    margin-bottom: 0.75rem;
-}
-
-.input-group {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.input-group label {
-    white-space: nowrap;
-    font-weight: 600;
-}
-
-.output-area {
-    margin-top: 0.75rem;
-}
-
-.output-area textarea {
-    min-height: 120px;
-    background: #0d0f16;
-    font-size: 0.8rem;
-    margin-bottom: 0.5rem;
 }
 
 /* ============================================
@@ -266,7 +253,7 @@ textarea {
 }
 
 /* ============================================
-   Chat
+   Chat (mesmo estilo)
 ============================================ */
 .chat-messages {
     background: #0d0f16;
@@ -317,7 +304,6 @@ textarea {
 
 .chat-input-group input {
     flex: 1;
-    font-family: 'Segoe UI', sans-serif;
 }
 
 /* ============================================

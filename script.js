@@ -1,6 +1,6 @@
 // ============================================
 // LAN Chat & File Transfer - WebRTC P2P
-// Sinalização manual via copy & paste
+// Sinalização via Supabase Realtime (presence + broadcast)
 // ============================================
 
 // ---------- Configuração Global ----------
@@ -11,36 +11,32 @@ const ICE_SERVERS = [
 
 const CHUNK_SIZE = 16 * 1024; // 16 KB por chunk
 const BUFFER_THRESHOLD = 1024 * 1024; // 1 MB - pausa se bufferedAmount exceder
-const GATHERING_TIMEOUT = 3000; // ms para aguardar coleta de ICE
 
 // Estado global
 let localUserName = '';
-let peerConnection = null;       // RTCPeerConnection
-let dataChannel = null;          // DataChannel principal
+let supabaseClient = null;      // cliente Supabase (evita conflito com window.supabase)
+let supabaseChannel = null;
+let roomCode = null;
 let isOfferer = false;
-let pendingIceCandidates = [];
-let iceGatheringComplete = false;
-let gatheringResolve = null;
+let peerConnection = null;
+let dataChannel = null;
+let connectionEstablished = false;
 
 // Estado para envio de arquivos
-let currentSendFile = null;      // { file, fileId, fileName, fileSize, totalChunks, sentChunks, startTime, bytesSent }
+let currentSendFile = null;
 let isSendingFile = false;
 
 // Estado para recebimento de arquivos
-let currentReceiveFile = null;   // { fileId, fileName, fileSize, totalChunks, chunks: [], bytesReceived }
+let currentReceiveFile = null;
 
 // Elementos DOM
 const elements = {
     userName: document.getElementById('userName'),
-    btnCreateOffer: document.getElementById('btnCreateOffer'),
-    offerOutput: document.getElementById('offerOutput'),
-    btnCopyOffer: document.getElementById('btnCopyOffer'),
-    offerInput: document.getElementById('offerInput'),
-    btnAnswer: document.getElementById('btnAnswer'),
-    answerOutput: document.getElementById('answerOutput'),
-    btnCopyAnswer: document.getElementById('btnCopyAnswer'),
-    answerInput: document.getElementById('answerInput'),
-    btnConnect: document.getElementById('btnConnect'),
+    btnCreateRoom: document.getElementById('btnCreateRoom'),
+    roomCodeInput: document.getElementById('roomCodeInput'),
+    btnJoinRoom: document.getElementById('btnJoinRoom'),
+    roomInfo: document.getElementById('roomInfo'),
+    roomCodeDisplay: document.getElementById('roomCodeDisplay'),
     statusDot: document.getElementById('statusDot'),
     statusText: document.getElementById('statusText'),
     logContainer: document.getElementById('logContainer'),
@@ -89,27 +85,13 @@ function setStatus(state, text) {
     }
 }
 
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch (err) {
-        // Fallback
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            return true;
-        } catch (err2) {
-            return false;
-        } finally {
-            document.body.removeChild(textarea);
-        }
+function generateRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sem I, O, 1, 0
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
     }
+    return code;
 }
 
 function formatBytes(bytes) {
@@ -123,92 +105,154 @@ function generateFileId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
-// ---------- Gerenciamento de ICE Candidates ----------
-function setupIceCandidateHandler(pc) {
+// ---------- Inicialização do Supabase ----------
+function initSupabase() {
+    if (typeof SUPABASE_URL === 'undefined' || typeof SUPABASE_ANON_KEY === 'undefined') {
+        log('❌ Credenciais do Supabase não encontradas. Verifique config.js');
+        return false;
+    }
+    if (typeof window.supabase === 'undefined') {
+        log('❌ SDK do Supabase não carregado. Verifique sua conexão ou bloqueador de anúncios.');
+        return false;
+    }
+    try {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        log('✅ Cliente Supabase inicializado');
+        return true;
+    } catch (err) {
+        log(`❌ Erro ao inicializar Supabase: ${err.message}`);
+        return false;
+    }
+}
+
+// ---------- Gerenciamento da Sala e Sinalização ----------
+async function setupSupabaseChannel(code) {
+    const channelName = `room:${code}`;
+    supabaseChannel = supabaseClient.channel(channelName, {
+        config: {
+            broadcast: { self: false } // não recebe as próprias mensagens
+        }
+    });
+
+    // Escuta mensagens de sinalização (broadcast)
+    supabaseChannel.on('broadcast', { event: 'signal' }, (payload) => {
+        handleSignal(payload.payload);
+    });
+
+    // Escuta mudanças de presença
+    supabaseChannel.on('presence', { event: 'sync' }, () => {
+        const state = supabaseChannel.presenceState();
+        const participants = Object.keys(state).length;
+        log(`👥 Participantes na sala: ${participants}`);
+        if (participants >= 2 && isOfferer && !peerConnection) {
+            log('🎯 Segundo participante detectado, iniciando oferta...');
+            createAndSendOffer();
+        }
+    });
+
+    // Inscreve-se no canal
+    await supabaseChannel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+            log(`📡 Inscrito no canal ${channelName}`);
+            // Rastreia presença do usuário
+            await supabaseChannel.track({ user: localUserName });
+        }
+    });
+}
+
+function sendSignal(type, data) {
+    if (!supabaseChannel) return;
+    supabaseChannel.send({
+        type: 'broadcast',
+        event: 'signal',
+        payload: { type, ...data }
+    });
+}
+
+function handleSignal(signal) {
+    log(`📨 Sinal recebido: ${signal.type}`);
+    switch (signal.type) {
+        case 'offer':
+            handleOffer(signal);
+            break;
+        case 'answer':
+            handleAnswer(signal);
+            break;
+        case 'ice':
+            handleIceCandidate(signal);
+            break;
+    }
+}
+
+// ---------- Criação e entrada na sala ----------
+async function createRoom() {
+    if (!localUserName.trim()) {
+        alert('⚠️ Digite seu nome primeiro!');
+        return;
+    }
+    if (supabaseChannel) {
+        alert('⚠️ Você já está em uma sala. Use Resetar para sair.');
+        return;
+    }
+    if (!initSupabase()) return;
+
+    roomCode = generateRoomCode();
+    isOfferer = true;
+    elements.roomInfo.style.display = 'block';
+    elements.roomCodeDisplay.textContent = roomCode;
+    log(`🏠 Sala criada com código: ${roomCode}`);
+
+    await setupSupabaseChannel(roomCode);
+    // A oferta será criada automaticamente quando outro participante entrar
+}
+
+async function joinRoom() {
+    if (!localUserName.trim()) {
+        alert('⚠️ Digite seu nome primeiro!');
+        return;
+    }
+    if (supabaseChannel) {
+        alert('⚠️ Você já está em uma sala. Use Resetar para sair.');
+        return;
+    }
+    const code = elements.roomCodeInput.value.trim().toUpperCase();
+    if (!code) {
+        alert('⚠️ Digite o código da sala.');
+        return;
+    }
+    if (!initSupabase()) return;
+
+    roomCode = code;
+    isOfferer = false;
+    elements.roomInfo.style.display = 'block';
+    elements.roomCodeDisplay.textContent = roomCode;
+    log(`🚪 Entrando na sala: ${roomCode}`);
+
+    await setupSupabaseChannel(roomCode);
+    // O respondente aguardará a oferta
+}
+
+// ---------- WebRTC: criação de PeerConnection e DataChannel ----------
+function createPeerConnection() {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
     pc.onicecandidate = (event) => {
         if (event.candidate) {
-            pendingIceCandidates.push({
+            sendSignal('ice', {
                 candidate: event.candidate.candidate,
                 sdpMid: event.candidate.sdpMid,
                 sdpMLineIndex: event.candidate.sdpMLineIndex
             });
-            log(`Candidato ICE coletado (${pendingIceCandidates.length} total)`);
+            log('🧊 Candidato ICE enviado');
         }
     };
-
-    pc.onicegatheringstatechange = () => {
-        log(`Estado de coleta ICE: ${pc.iceGatheringState}`);
-        if (pc.iceGatheringState === 'complete') {
-            iceGatheringComplete = true;
-            if (gatheringResolve) gatheringResolve();
-        }
-    };
-}
-
-// Aguarda a coleta de candidatos ICE terminar (ou timeout)
-async function waitForIceGathering(pc) {
-    if (iceGatheringComplete) return;
-    log('Aguardando coleta de candidatos ICE...');
-    await new Promise((resolve) => {
-        gatheringResolve = resolve;
-        // Timeout de segurança
-        setTimeout(() => {
-            log('Timeout de coleta ICE — usando candidatos disponíveis');
-            if (gatheringResolve) {
-                gatheringResolve();
-                gatheringResolve = null;
-            }
-        }, GATHERING_TIMEOUT);
-    });
-}
-
-// Monta o bloco JSON com SDP + candidatos
-function buildSignalingPayload() {
-    if (!peerConnection || !peerConnection.localDescription) {
-        throw new Error('Descrição local não disponível');
-    }
-    return JSON.stringify({
-        sdp: peerConnection.localDescription.sdp,
-        type: peerConnection.localDescription.type,
-        candidates: pendingIceCandidates
-    }, null, 2);
-}
-
-// Parseia o bloco JSON recebido
-function parseSignalingPayload(text) {
-    try {
-        const data = JSON.parse(text);
-        if (!data.sdp || !data.type) {
-            throw new Error('Dados incompletos: faltam sdp ou type');
-        }
-        return data;
-    } catch (err) {
-        throw new Error('JSON inválido: ' + err.message);
-    }
-}
-
-// Adiciona candidatos ICE a partir de um array
-async function addIceCandidates(pc, candidates) {
-    for (const candidate of candidates) {
-        try {
-            await pc.addIceCandidate(candidate);
-            log('Candidato ICE adicionado');
-        } catch (err) {
-            log(`Erro ao adicionar candidato: ${err.message}`);
-        }
-    }
-}
-
-// ---------- Configuração do PeerConnection ----------
-function createPeerConnection() {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    setupIceCandidateHandler(pc);
 
     pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
         log(`Estado da conexão: ${state}`);
         switch (state) {
             case 'connected':
+                connectionEstablished = true;
                 setStatus('connected');
                 elements.btnSendChat.disabled = false;
                 log('🎉 Conexão P2P estabelecida com sucesso!');
@@ -229,7 +273,6 @@ function createPeerConnection() {
     return pc;
 }
 
-// ---------- Configuração do DataChannel ----------
 function setupDataChannel(channel) {
     dataChannel = channel;
     channel.binaryType = 'arraybuffer';
@@ -259,7 +302,107 @@ function setupDataChannel(channel) {
     };
 }
 
-// ---------- Handlers de mensagens ----------
+// ---------- Ofertante: criar e enviar oferta ----------
+async function createAndSendOffer() {
+    try {
+        log('📤 Criando oferta...');
+        peerConnection = createPeerConnection();
+
+        // Cria DataChannel (lado do ofertante)
+        const channel = peerConnection.createDataChannel('data', { ordered: true });
+        setupDataChannel(channel);
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        // Envia a oferta via Supabase
+        sendSignal('offer', {
+            sdp: peerConnection.localDescription.sdp,
+            type: peerConnection.localDescription.type
+        });
+        log('✅ Oferta enviada via Supabase');
+    } catch (err) {
+        log(`❌ Erro ao criar oferta: ${err.message}`);
+        alert('Erro ao criar oferta: ' + err.message);
+    }
+}
+
+// ---------- Respondente: receber oferta e responder ----------
+async function handleOffer(offerData) {
+    if (isOfferer || peerConnection) {
+        log('⚠️ Oferta recebida, mas este dispositivo não é o respondente ou já possui conexão.');
+        return;
+    }
+    try {
+        log('📥 Oferta recebida, processando...');
+        peerConnection = createPeerConnection();
+
+        // Configura recebimento do DataChannel
+        peerConnection.ondatachannel = (event) => {
+            log('📡 DataChannel recebido do ofertante');
+            setupDataChannel(event.channel);
+        };
+
+        await peerConnection.setRemoteDescription({
+            sdp: offerData.sdp,
+            type: offerData.type
+        });
+
+        // Cria resposta
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        // Envia resposta
+        sendSignal('answer', {
+            sdp: peerConnection.localDescription.sdp,
+            type: peerConnection.localDescription.type
+        });
+        log('✅ Resposta enviada via Supabase');
+    } catch (err) {
+        log(`❌ Erro ao processar oferta: ${err.message}`);
+        alert('Erro ao processar oferta: ' + err.message);
+    }
+}
+
+// ---------- Ofertante: receber resposta ----------
+async function handleAnswer(answerData) {
+    if (!isOfferer || !peerConnection) {
+        log('⚠️ Resposta recebida, mas este dispositivo não é o ofertante ou não há conexão.');
+        return;
+    }
+    try {
+        log('🔗 Resposta recebida, finalizando conexão...');
+        await peerConnection.setRemoteDescription({
+            sdp: answerData.sdp,
+            type: answerData.type
+        });
+        log('✅ Resposta aplicada! Aguardando conexão P2P...');
+        setStatus('connecting');
+    } catch (err) {
+        log(`❌ Erro ao aplicar resposta: ${err.message}`);
+        alert('Erro ao aplicar resposta: ' + err.message);
+    }
+}
+
+// ---------- ICE Candidate ----------
+async function handleIceCandidate(iceData) {
+    if (!peerConnection || !peerConnection.remoteDescription) {
+        log('⚠️ Candidato ICE recebido antes da descrição remota, ignorando...');
+        return;
+    }
+    try {
+        await peerConnection.addIceCandidate({
+            candidate: iceData.candidate,
+            sdpMid: iceData.sdpMid,
+            sdpMLineIndex: iceData.sdpMLineIndex
+        });
+        log('🧊 Candidato ICE adicionado');
+    } catch (err) {
+        log(`❌ Erro ao adicionar ICE: ${err.message}`);
+    }
+}
+
+// ---------- Handlers de mensagens do DataChannel ----------
 function handleJsonMessage(jsonStr) {
     try {
         const message = JSON.parse(jsonStr);
@@ -356,13 +499,8 @@ function handleFileEnd(message) {
     const blob = new Blob(chunks, { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     log(`✅ Arquivo recebido: ${fileName} (${formatBytes(fileSize)})`);
-    
-    // Adiciona à lista de recebidos
     addReceivedFile(fileName, fileSize, url);
-    
-    // Tenta download automático
     tryDownload(url, fileName);
-    
     currentReceiveFile = null;
 }
 
@@ -377,9 +515,7 @@ function addReceivedFile(fileName, fileSize, url) {
     `;
     li.querySelector('.btn-download').addEventListener('click', (e) => {
         const btn = e.target;
-        const dlUrl = btn.dataset.url;
-        const dlName = btn.dataset.filename;
-        tryDownload(dlUrl, dlName);
+        tryDownload(btn.dataset.url, btn.dataset.filename);
     });
     elements.receivedFilesList.appendChild(li);
 }
@@ -404,61 +540,52 @@ async function sendFile(file) {
         alert('⚠️ Já existe uma transferência em andamento.');
         return;
     }
-    
+
     const fileId = generateFileId();
     const fileSize = file.size;
     const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
-    
+
     currentSendFile = {
-        file: file,
-        fileId: fileId,
+        file,
+        fileId,
         fileName: file.name,
-        fileSize: fileSize,
-        totalChunks: totalChunks,
+        fileSize,
+        totalChunks,
         sentChunks: 0,
         startTime: Date.now(),
         bytesSent: 0
     };
-    
+
     isSendingFile = true;
     elements.uploadProgress.style.display = 'block';
     elements.uploadFileName.textContent = file.name;
     updateUploadProgress();
-    
-    // Envia mensagem de início
+
     const startMsg = {
         type: 'file-start',
-        fileId: fileId,
+        fileId,
         fileName: file.name,
-        fileSize: fileSize,
-        totalChunks: totalChunks
+        fileSize,
+        totalChunks
     };
     dataChannel.send(JSON.stringify(startMsg));
     log(`📤 Iniciando envio de "${file.name}" (${formatBytes(fileSize)})`);
-    
+
     try {
         for (let i = 0; i < totalChunks; i++) {
-            // Verifica buffer e aguarda liberar se necessário
             if (dataChannel.bufferedAmount > BUFFER_THRESHOLD) {
                 await waitForBufferToDrain();
             }
-            
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, fileSize);
             const chunk = file.slice(start, end);
             const arrayBuffer = await chunk.arrayBuffer();
-            
             dataChannel.send(arrayBuffer);
             currentSendFile.sentChunks++;
             currentSendFile.bytesSent += arrayBuffer.byteLength;
             updateUploadProgress();
         }
-        
-        // Envia mensagem de fim
-        const endMsg = {
-            type: 'file-end',
-            fileId: fileId
-        };
+        const endMsg = { type: 'file-end', fileId };
         dataChannel.send(JSON.stringify(endMsg));
         log(`✅ Envio de "${file.name}" concluído!`);
     } catch (err) {
@@ -480,7 +607,6 @@ function waitForBufferToDrain() {
             dataChannel.onbufferedamountlow = originalHandler;
             resolve();
         };
-        // Se o buffer já estiver baixo, resolve imediatamente
         if (dataChannel.bufferedAmount <= BUFFER_THRESHOLD) {
             dataChannel.onbufferedamountlow = originalHandler;
             resolve();
@@ -492,149 +618,13 @@ function updateUploadProgress() {
     if (!currentSendFile) return;
     const percent = (currentSendFile.sentChunks / currentSendFile.totalChunks) * 100;
     const elapsed = (Date.now() - currentSendFile.startTime) / 1000;
-    const speed = elapsed > 0 ? currentSendFile.bytesSent / elapsed / 1024 : 0; // KB/s
+    const speed = elapsed > 0 ? currentSendFile.bytesSent / elapsed / 1024 : 0;
     elements.uploadProgressBar.style.width = percent.toFixed(1) + '%';
-    elements.uploadProgressText.textContent = 
+    elements.uploadProgressText.textContent =
         `${percent.toFixed(1)}% — ${speed.toFixed(1)} KB/s (${formatBytes(currentSendFile.bytesSent)} de ${formatBytes(currentSendFile.fileSize)})`;
 }
 
-// ---------- Ações de Sinalização ----------
-// Ofertante: criar oferta
-async function createOffer() {
-    try {
-        if (!localUserName.trim()) {
-            alert('⚠️ Digite seu nome primeiro!');
-            return;
-        }
-        if (peerConnection && peerConnection.connectionState !== 'closed') {
-            alert('⚠️ Já existe uma conexão. Use "Resetar" para recomeçar.');
-            return;
-        }
-        
-        log('📤 Criando oferta...');
-        isOfferer = true;
-        pendingIceCandidates = [];
-        iceGatheringComplete = false;
-        
-        peerConnection = createPeerConnection();
-        
-        // Cria o DataChannel (lado do ofertante)
-        const channel = peerConnection.createDataChannel('data', { ordered: true });
-        setupDataChannel(channel);
-        
-        // Cria oferta
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        
-        // Aguarda coleta de candidatos
-        await waitForIceGathering(peerConnection);
-        
-        // Monta e exibe o payload
-        const payload = buildSignalingPayload();
-        elements.offerOutput.value = payload;
-        elements.btnCopyOffer.disabled = false;
-        log('✅ Oferta criada! Copie o texto e envie ao respondente.');
-    } catch (err) {
-        log(`❌ Erro ao criar oferta: ${err.message}`);
-        alert('Erro ao criar oferta: ' + err.message);
-    }
-}
-
-// Respondente: responder à oferta
-async function createAnswer() {
-    try {
-        if (!localUserName.trim()) {
-            alert('⚠️ Digite seu nome primeiro!');
-            return;
-        }
-        if (peerConnection && peerConnection.connectionState !== 'closed') {
-            alert('⚠️ Já existe uma conexão. Use "Resetar" para recomeçar.');
-            return;
-        }
-        
-        const offerText = elements.offerInput.value.trim();
-        if (!offerText) {
-            alert('⚠️ Cole a oferta no campo de texto.');
-            return;
-        }
-        
-        const offerData = parseSignalingPayload(offerText);
-        log('📥 Processando oferta recebida...');
-        isOfferer = false;
-        pendingIceCandidates = [];
-        iceGatheringComplete = false;
-        
-        peerConnection = createPeerConnection();
-        
-        // Configura o recebimento do DataChannel (lado do respondente)
-        peerConnection.ondatachannel = (event) => {
-            log('📡 DataChannel recebido do ofertante');
-            setupDataChannel(event.channel);
-        };
-        
-        // Aplica a descrição remota (oferta)
-        await peerConnection.setRemoteDescription({
-            sdp: offerData.sdp,
-            type: offerData.type
-        });
-        
-        // Adiciona candidatos ICE da oferta
-        await addIceCandidates(peerConnection, offerData.candidates || []);
-        
-        // Cria resposta
-        log('📥 Criando resposta...');
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        
-        // Aguarda coleta de candidatos
-        await waitForIceGathering(peerConnection);
-        
-        // Monta e exibe a resposta
-        const payload = buildSignalingPayload();
-        elements.answerOutput.value = payload;
-        elements.btnCopyAnswer.disabled = false;
-        log('✅ Resposta criada! Copie o texto e envie de volta ao ofertante.');
-    } catch (err) {
-        log(`❌ Erro ao responder: ${err.message}`);
-        alert('Erro ao responder: ' + err.message);
-    }
-}
-
-// Ofertante: finalizar conexão com a resposta
-async function finalizeConnection() {
-    try {
-        if (!peerConnection || !isOfferer) {
-            alert('⚠️ Você precisa ser o ofertante e ter criado uma oferta primeiro.');
-            return;
-        }
-        
-        const answerText = elements.answerInput.value.trim();
-        if (!answerText) {
-            alert('⚠️ Cole a resposta no campo de texto.');
-            return;
-        }
-        
-        const answerData = parseSignalingPayload(answerText);
-        log('🔗 Processando resposta recebida...');
-        
-        // Aplica a descrição remota (resposta)
-        await peerConnection.setRemoteDescription({
-            sdp: answerData.sdp,
-            type: answerData.type
-        });
-        
-        // Adiciona candidatos ICE da resposta
-        await addIceCandidates(peerConnection, answerData.candidates || []);
-        
-        log('✅ Resposta aplicada! A conexão deve ser estabelecida automaticamente.');
-        setStatus('connecting');
-    } catch (err) {
-        log(`❌ Erro ao conectar: ${err.message}`);
-        alert('Erro ao conectar: ' + err.message);
-    }
-}
-
-// Resetar tudo
+// ---------- Resetar ----------
 function resetAll() {
     if (dataChannel) {
         try { dataChannel.close(); } catch (e) {}
@@ -644,17 +634,23 @@ function resetAll() {
         try { peerConnection.close(); } catch (e) {}
         peerConnection = null;
     }
-    pendingIceCandidates = [];
-    iceGatheringComplete = false;
+    if (supabaseChannel) {
+        try {
+            supabaseChannel.untrack();
+            supabaseChannel.unsubscribe();
+            supabaseChannel = null;
+        } catch (e) {}
+    }
     isOfferer = false;
+    connectionEstablished = false;
     isSendingFile = false;
     currentSendFile = null;
     currentReceiveFile = null;
-    
-    elements.offerOutput.value = '';
-    elements.answerOutput.value = '';
-    elements.btnCopyOffer.disabled = true;
-    elements.btnCopyAnswer.disabled = true;
+    roomCode = null;
+
+    elements.roomInfo.style.display = 'none';
+    elements.roomCodeDisplay.textContent = '';
+    elements.roomCodeInput.value = '';
     elements.btnSendChat.disabled = true;
     elements.chatMessages.innerHTML = '';
     elements.receivedFilesList.innerHTML = '';
@@ -666,45 +662,26 @@ function resetAll() {
 
 // ---------- Event Listeners ----------
 document.addEventListener('DOMContentLoaded', () => {
-    log('Aplicação carregada. Digite seu nome e siga os passos.');
-    
-    // Nome do usuário
+    log('Aplicação carregada. Digite seu nome e crie/entre em uma sala.');
+
     elements.userName.addEventListener('input', () => {
         localUserName = elements.userName.value.trim();
     });
-    
-    // Ofertante
-    elements.btnCreateOffer.addEventListener('click', createOffer);
-    elements.btnCopyOffer.addEventListener('click', async () => {
-        if (elements.offerOutput.value) {
-            const success = await copyToClipboard(elements.offerOutput.value);
-            if (success) log('📋 Oferta copiada para a área de transferência!');
-            else log('⚠️ Falha ao copiar — selecione e copie manualmente.');
-        }
+
+    elements.btnCreateRoom.addEventListener('click', createRoom);
+    elements.btnJoinRoom.addEventListener('click', joinRoom);
+    elements.roomCodeInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') joinRoom();
     });
-    
-    // Respondente
-    elements.btnAnswer.addEventListener('click', createAnswer);
-    elements.btnCopyAnswer.addEventListener('click', async () => {
-        if (elements.answerOutput.value) {
-            const success = await copyToClipboard(elements.answerOutput.value);
-            if (success) log('📋 Resposta copiada para a área de transferência!');
-            else log('⚠️ Falha ao copiar — selecione e copie manualmente.');
-        }
-    });
-    
-    // Finalizar
-    elements.btnConnect.addEventListener('click', finalizeConnection);
-    
-    // Reset
+
     elements.btnReset.addEventListener('click', resetAll);
-    
+
     // Chat
     elements.btnSendChat.addEventListener('click', sendChatMessage);
     elements.chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendChatMessage();
     });
-    
+
     // Arquivos
     elements.btnSelectFile.addEventListener('click', () => {
         elements.fileInput.click();
@@ -715,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.target.value = '';
         }
     });
-    
+
     // Drag and drop
     elements.dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
