@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Chat & File Transfer - WebRTC P2P</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔗 Chat & Arquivos P2P (LAN)</h1>
+            <p class="subtitle">Comunicação direta entre navegadores via WebRTC — sem servidor externo</p>
+        </header>
+
+        <!-- Configuração do usuário -->
+        <section class="card user-config">
+            <h2>👤 Identificação</h2>
+            <div class="input-group">
+                <label for="userName">Seu nome:</label>
+                <input type="text" id="userName" placeholder="Ex: João" maxlength="30">
+            </div>
+            <p class="hint">Digite um nome antes de iniciar a conexão.</p>
+        </section>
+
+        <!-- Fluxo de sinalização manual -->
+        <div class="grid-signaling">
+            <!-- Passo 1: Ofertante -->
+            <section class="card signaling-card">
+                <h2>📤 Passo 1 — Ofertante</h2>
+                <ol class="steps">
+                    <li>Clique em <strong>"Criar Oferta"</strong>.</li>
+                    <li>Copie o texto gerado e envie para o outro dispositivo (ex: e-mail, WhatsApp, etc).</li>
+                </ol>
+                <button id="btnCreateOffer" class="btn btn-primary">Criar Oferta</button>
+                <div class="output-area">
+                    <textarea id="offerOutput" readonly placeholder="A oferta aparecerá aqui..."></textarea>
+                    <button id="btnCopyOffer" class="btn btn-secondary" disabled>Copiar Oferta</button>
+                </div>
+            </section>
+
+            <!-- Passo 2: Respondente -->
+            <section class="card signaling-card">
+                <h2>📥 Passo 2 — Respondente</h2>
+                <ol class="steps">
+                    <li>Cole a <strong>oferta</strong> recebida no campo abaixo.</li>
+                    <li>Clique em <strong>"Responder à Oferta"</strong>.</li>
+                    <li>Copie a <strong>resposta</strong> gerada e envie de volta ao ofertante.</li>
+                </ol>
+                <textarea id="offerInput" placeholder="Cole aqui a oferta (JSON)..."></textarea>
+                <button id="btnAnswer" class="btn btn-primary">Responder à Oferta</button>
+                <div class="output-area">
+                    <textarea id="answerOutput" readonly placeholder="A resposta aparecerá aqui..."></textarea>
+                    <button id="btnCopyAnswer" class="btn btn-secondary" disabled>Copiar Resposta</button>
+                </div>
+            </section>
+
+            <!-- Passo 3: Finalizar -->
+            <section class="card signaling-card">
+                <h2>🔌 Passo 3 — Finalizar (Ofertante)</h2>
+                <ol class="steps">
+                    <li>Cole a <strong>resposta</strong> recebida do respondente.</li>
+                    <li>Clique em <strong>"Conectar"</strong>.</li>
+                    <li>Aguarde o status mudar para <strong>"Conectado"</strong>.</li>
+                </ol>
+                <textarea id="answerInput" placeholder="Cole aqui a resposta (JSON)..."></textarea>
+                <button id="btnConnect" class="btn btn-primary">Conectar</button>
+            </section>
+        </div>
+
+        <!-- Status da conexão -->
+        <section class="card status-card">
+            <h2>📡 Status da Conexão</h2>
+            <div class="status-indicator">
+                <span id="statusDot" class="dot dot-disconnected"></span>
+                <span id="statusText">Desconectado</span>
+            </div>
+            <div class="log-area">
+                <p><strong>Log de eventos:</strong></p>
+                <div id="logContainer" class="log-container"></div>
+            </div>
+            <button id="btnReset" class="btn btn-danger">Resetar / Limpar Tudo</button>
+        </section>
+
+        <!-- Chat -->
+        <section class="card chat-card">
+            <h2>💬 Chat</h2>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-input-group">
+                <input type="text" id="chatInput" placeholder="Digite sua mensagem..." maxlength="1000">
+                <button id="btnSendChat" class="btn btn-primary" disabled>Enviar</button>
+            </div>
+        </section>
+
+        <!-- Transferência de arquivos -->
+        <section class="card file-card">
+            <h2>📁 Transferência de Arquivos</h2>
+            <div id="dropZone" class="drop-zone">
+                <p>Arraste e solte arquivos aqui<br>ou</p>
+                <button id="btnSelectFile" class="btn btn-secondary">Selecionar Arquivo</button>
+                <input type="file" id="fileInput" style="display: none;">
+            </div>
+            <div id="uploadProgress" class="progress-container" style="display: none;">
+                <p>Enviando: <span id="uploadFileName"></span></p>
+                <div class="progress-bar">
+                    <div id="uploadProgressBar" class="progress-fill"></div>
+                </div>
+                <p id="uploadProgressText">0% — 0 KB/s</p>
+            </div>
+            <div class="received-files">
+                <h3>Arquivos Recebidos</h3>
+                <ul id="receivedFilesList"></ul>
+            </div>
+        </section>
+
+        <footer>
+            <p>⚠️ <strong>Importante:</strong> Ambos os dispositivos devem acessar esta página (via IP local) e seguir o fluxo de sinalização manual. Toda comunicação é P2P após a conexão.</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

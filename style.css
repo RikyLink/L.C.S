@@ -1,0 +1,423 @@
+/* ============================================
+   Estilos Globais
+============================================ */
+:root {
+    --bg: #0f1117;
+    --card-bg: #1a1e2b;
+    --border: #2e3347;
+    --text: #e0e0e0;
+    --text-muted: #a0a5b5;
+    --primary: #4f7cff;
+    --primary-hover: #3b66e0;
+    --secondary: #3a4156;
+    --secondary-hover: #4a526e;
+    --danger: #e05b5b;
+    --success: #4caf50;
+    --warning: #ffb74d;
+    --radius: 10px;
+    --shadow: 0 4px 20px rgba(0,0,0,0.3);
+    --transition: 0.2s ease;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 1rem;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+header h1 {
+    font-size: 2rem;
+    margin-bottom: 0.25rem;
+    background: linear-gradient(135deg, #4f7cff, #a855f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+/* ============================================
+   Cards
+============================================ */
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.card h2 {
+    font-size: 1.3rem;
+    margin-bottom: 1rem;
+    color: #ffffff;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0.5rem;
+}
+
+.hint {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+/* ============================================
+   Grid de sinalização
+============================================ */
+.grid-signaling {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 900px) {
+    .grid-signaling {
+        grid-template-columns: 1fr;
+    }
+}
+
+.signaling-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.steps {
+    margin-left: 1.25rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.steps li {
+    margin-bottom: 0.25rem;
+}
+
+/* ============================================
+   Botões
+============================================ */
+.btn {
+    padding: 0.6rem 1.2rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: background var(--transition), transform var(--transition);
+    white-space: nowrap;
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.btn-secondary {
+    background: var(--secondary);
+    color: #fff;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--secondary-hover);
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+}
+
+.btn-danger:hover {
+    background: #c94f4f;
+}
+
+/* ============================================
+   Inputs e áreas de texto
+============================================ */
+input[type="text"],
+textarea {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0d0f16;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+    resize: vertical;
+    transition: border var(--transition);
+}
+
+input[type="text"]:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+textarea {
+    min-height: 100px;
+    margin-bottom: 0.75rem;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.input-group label {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.output-area {
+    margin-top: 0.75rem;
+}
+
+.output-area textarea {
+    min-height: 120px;
+    background: #0d0f16;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+/* ============================================
+   Status
+============================================ */
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot-disconnected { background: #666; }
+.dot-connecting { background: var(--warning); animation: pulse 1s infinite; }
+.dot-connected { background: var(--success); }
+.dot-failed { background: var(--danger); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.log-container {
+    background: #0d0f16;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    max-height: 150px;
+    overflow-y: auto;
+    font-size: 0.8rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.log-container .log-entry {
+    margin-bottom: 0.25rem;
+}
+
+.log-container .log-time {
+    color: #666;
+    margin-right: 0.5rem;
+}
+
+/* ============================================
+   Chat
+============================================ */
+.chat-messages {
+    background: #0d0f16;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    height: 250px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+}
+
+.chat-message {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: #1e2335;
+    max-width: 80%;
+    word-wrap: break-word;
+}
+
+.chat-message.own {
+    background: #1e3a5f;
+    margin-left: auto;
+    text-align: right;
+}
+
+.chat-message .msg-sender {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #4f7cff;
+}
+
+.chat-message .msg-time {
+    font-size: 0.7rem;
+    color: #888;
+    margin-left: 0.5rem;
+}
+
+.chat-message .msg-text {
+    margin-top: 0.25rem;
+    font-size: 0.95rem;
+}
+
+.chat-input-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chat-input-group input {
+    flex: 1;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+/* ============================================
+   Transferência de Arquivos
+============================================ */
+.drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border var(--transition), background var(--transition);
+    margin-bottom: 1rem;
+}
+
+.drop-zone.dragover {
+    border-color: var(--primary);
+    background: rgba(79, 124, 255, 0.05);
+}
+
+.drop-zone p {
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.progress-container {
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    background: #0d0f16;
+    border-radius: 6px;
+    height: 20px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin: 0.5rem 0;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), #a855f7);
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.received-files h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: #ccc;
+}
+
+.received-files ul {
+    list-style: none;
+}
+
+.received-files li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+
+.received-files .file-info {
+    flex: 1;
+    margin-right: 1rem;
+}
+
+.received-files .file-name {
+    font-weight: 600;
+}
+
+.received-files .file-size {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.btn-download {
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    background: var(--secondary);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-download:hover {
+    background: var(--secondary-hover);
+}
+
+/* ============================================
+   Footer
+============================================ */
+footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-top: 2rem;
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+}
